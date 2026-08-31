@@ -163,9 +163,122 @@ async def ejecutar(args: argparse.Namespace) -> int:
     return codigo_salida
 
 
+def _color(texto: str, codigo: str) -> str:
+    """Envuelve texto en secuencias ANSI para colorear la terminal."""
+    return f"\033[{codigo}m{texto}\033[0m"
+
+
+def modo_interactivo() -> argparse.Namespace:
+    """
+    Interfaz interactiva que guía al usuario paso a paso cuando
+    ejecuta el script sin argumentos.
+    """
+    print()
+    print(_color("=" * 56, "36"))
+    print(_color("   🔱  TRITON MONITOR  —  Modo Interactivo", "1;36"))
+    print(_color("=" * 56, "36"))
+    print()
+
+    # ── 1. Cluster ID ────────────────────────────────────────
+    print(_color("📌  Paso 1/4: Identificador del cluster", "1;33"))
+    print("   Formato: cluster-<region>-<numero>")
+    print("   Ejemplo: cluster-us-east-01, cluster-sa-east-99")
+    print()
+    while True:
+        cluster = input(_color("   ➤ Cluster ID: ", "33")).strip()
+        if not cluster:
+            print(_color("   ⚠  No puede estar vacío.", "31"))
+            continue
+        try:
+            cluster = validar_cluster_id(cluster)
+            break
+        except argparse.ArgumentTypeError as e:
+            print(_color(f"   ⚠  {e}", "31"))
+    print()
+
+    # ── 2. Timeout ───────────────────────────────────────────
+    print(_color("⏱️   Paso 2/4: Timeout de red (segundos)", "1;33"))
+    print("   Rango permitido: 0.1 – 5.0 (exclusivo)")
+    print("   Default: 3.0")
+    print()
+    while True:
+        raw = input(_color("   ➤ Timeout [3.0]: ", "33")).strip()
+        if not raw:
+            timeout = 3.0
+            break
+        try:
+            timeout = validar_timeout(raw)
+            break
+        except argparse.ArgumentTypeError as e:
+            print(_color(f"   ⚠  {e}", "31"))
+    print()
+
+    # ── 3. Modo de logging ───────────────────────────────────
+    print(_color("📋  Paso 3/4: Modo de logging", "1;33"))
+    print("   [1] Normal  — nivel INFO (default)")
+    print("   [2] Debug   — nivel DEBUG (detallado)")
+    print("   [3] Emergency — nivel ERROR (solo críticos)")
+    print()
+    while True:
+        opcion = input(_color("   ➤ Elige [1/2/3]: ", "33")).strip()
+        if opcion in ("", "1"):
+            debug, emergency = False, False
+            break
+        elif opcion == "2":
+            debug, emergency = True, False
+            break
+        elif opcion == "3":
+            debug, emergency = False, True
+            break
+        else:
+            print(_color("   ⚠  Opción inválida. Ingresa 1, 2 o 3.", "31"))
+    print()
+
+    # ── 4. Ruta de log ───────────────────────────────────────
+    print(_color("📁  Paso 4/4: Ruta del archivo de log", "1;33"))
+    default_log = "logs/triton_monitor.log"
+    print(f"   Default: {default_log}")
+    print()
+    log_path = input(_color(f"   ➤ Log path [{default_log}]: ", "33")).strip()
+    if not log_path:
+        log_path = default_log
+    print()
+
+    # ── Resumen ──────────────────────────────────────────────
+    modo_str = "Debug" if debug else ("Emergency" if emergency else "Normal")
+    print(_color("─" * 56, "36"))
+    print(_color("  📊  Resumen de configuración:", "1;36"))
+    print(f"       Cluster:   {_color(cluster, '1;37')}")
+    print(f"       Timeout:   {_color(str(timeout) + 's', '1;37')}")
+    print(f"       Modo log:  {_color(modo_str, '1;37')}")
+    print(f"       Log path:  {_color(log_path, '1;37')}")
+    print(_color("─" * 56, "36"))
+    print()
+
+    confirmar = input(_color("   ¿Ejecutar? [S/n]: ", "1;32")).strip().lower()
+    if confirmar in ("n", "no"):
+        print(_color("\n   ❌  Ejecución cancelada.\n", "31"))
+        sys.exit(0)
+
+    print()
+    print(_color("   🚀  Iniciando monitoreo...\n", "1;32"))
+
+    return argparse.Namespace(
+        cluster=cluster,
+        timeout=timeout,
+        debug=debug,
+        emergency=emergency,
+        log_path=log_path,
+    )
+
+
 def main() -> None:
-    parser = construir_parser()
-    args = parser.parse_args()
+    # Si no hay argumentos en la línea de comandos → modo interactivo
+    if len(sys.argv) == 1:
+        args = modo_interactivo()
+    else:
+        parser = construir_parser()
+        args = parser.parse_args()
 
     nivel = resolver_nivel_log(args)
     listener, log_queue = build_logging_pipeline(args.log_path)
