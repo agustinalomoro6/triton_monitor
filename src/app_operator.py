@@ -174,7 +174,9 @@ def modo_interactivo() -> argparse.Namespace:
     ejecuta el script sin argumentos.
     """
     print()
-    print(_color("=" * 56, "36"))
+    print(_color("=" * 56, "35"))
+    print(_color("             ⚡  B Y T E F O R C E  ⚡", "1;35"))
+    print(_color("=" * 56, "35"))
     print(_color("   🔱  TRITON MONITOR  —  Modo Interactivo", "1;36"))
     print(_color("=" * 56, "36"))
     print()
