@@ -1,0 +1,2 @@
+{"timestamp": "2026-08-27T05:47:05.509822+00:00", "level": "INFO", "logger": "triton_test2", "message": "Prueba de log nominal", "process": 15928, "threadName": "MainThread", "taskName": null, "cluster": "cluster-us-east-01"}
+{"timestamp": "2026-08-27T05:47:05.510103+00:00", "level": "ERROR", "logger": "triton_test2", "message": "Prueba de log con excepcion", "process": 15928, "threadName": "MainThread", "taskName": null, "exception": {"type": "ValueError", "message": "fallo simulado", "notes": []}}
