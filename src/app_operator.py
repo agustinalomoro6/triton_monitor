@@ -73,6 +73,16 @@ def construir_parser() -> argparse.ArgumentParser:
         help="Modo emergencia: solo errores criticos (nivel ERROR).",
     )
 
+    parser.add_argument(
+        "--chaos",
+        action="store_true",
+        help="Escenario C (Inyeccion de Caos): en vez de consultar los "
+             "proveedores nominales, consulta endpoints reales de "
+             "httpbin.org disenhados para fallar (timeout, HTTP 504 y "
+             "host inexistente), para poder demostrar en vivo los 3 "
+             "tipos de error de exceptions.py.",
+    )
+
     return parser
 
 
@@ -122,7 +132,7 @@ async def ejecutar(args: argparse.Namespace) -> int:
     codigo_salida = 0
 
     try:
-        resultados = await monitorear_clusters(args.timeout)
+        resultados = await monitorear_clusters(args.timeout, use_chaos=args.chaos)
         for resultado in resultados:
             logger.info(
                 "Resultado final",
@@ -182,7 +192,7 @@ def modo_interactivo() -> argparse.Namespace:
     print()
 
     # ── 1. Cluster ID ────────────────────────────────────────
-    print(_color("📌  Paso 1/4: Identificador del cluster", "1;33"))
+    print(_color("📌  Paso 1/5: Identificador del cluster", "1;33"))
     print("   Formato: cluster-<region>-<numero>")
     print("   Ejemplo: cluster-us-east-01, cluster-sa-east-99")
     print()
@@ -199,7 +209,7 @@ def modo_interactivo() -> argparse.Namespace:
     print()
 
     # ── 2. Timeout ───────────────────────────────────────────
-    print(_color("⏱️   Paso 2/4: Timeout de red (segundos)", "1;33"))
+    print(_color("⏱️   Paso 2/5: Timeout de red (segundos)", "1;33"))
     print("   Rango permitido: 0.1 – 5.0 (exclusivo)")
     print("   Default: 3.0")
     print()
@@ -216,7 +226,7 @@ def modo_interactivo() -> argparse.Namespace:
     print()
 
     # ── 3. Modo de logging ───────────────────────────────────
-    print(_color("📋  Paso 3/4: Modo de logging", "1;33"))
+    print(_color("📋  Paso 3/5: Modo de logging", "1;33"))
     print("   [1] Normal  — nivel INFO (default)")
     print("   [2] Debug   — nivel DEBUG (detallado)")
     print("   [3] Emergency — nivel ERROR (solo críticos)")
@@ -236,8 +246,18 @@ def modo_interactivo() -> argparse.Namespace:
             print(_color("   ⚠  Opción inválida. Ingresa 1, 2 o 3.", "31"))
     print()
 
-    # ── 4. Ruta de log ───────────────────────────────────────
-    print(_color("📁  Paso 4/4: Ruta del archivo de log", "1;33"))
+    # ── 4. Escenario de caos (opcional) ──────────────────────
+    print(_color("🌪️   Paso 4/5: Escenario de caos (opcional)", "1;33"))
+    print("   Consulta endpoints reales de httpbin.org disenhados")
+    print("   para fallar (timeout, HTTP 504, host inexistente),")
+    print("   en vez de los proveedores nominales.")
+    print()
+    raw_caos = input(_color("   ➤ ¿Activar modo caos? [s/N]: ", "33")).strip().lower()
+    chaos = raw_caos in ("s", "si", "sí", "y", "yes")
+    print()
+
+    # ── 5. Ruta de log ───────────────────────────────────────
+    print(_color("📁  Paso 5/5: Ruta del archivo de log", "1;33"))
     default_log = "logs/triton_monitor.log"
     print(f"   Default: {default_log}")
     print()
@@ -248,11 +268,13 @@ def modo_interactivo() -> argparse.Namespace:
 
     # ── Resumen ──────────────────────────────────────────────
     modo_str = "Debug" if debug else ("Emergency" if emergency else "Normal")
+    caos_str = "Sí (httpbin.org)" if chaos else "No (nominal)"
     print(_color("─" * 56, "36"))
     print(_color("  📊  Resumen de configuración:", "1;36"))
     print(f"       Cluster:   {_color(cluster, '1;37')}")
     print(f"       Timeout:   {_color(str(timeout) + 's', '1;37')}")
     print(f"       Modo log:  {_color(modo_str, '1;37')}")
+    print(f"       Caos:      {_color(caos_str, '1;37')}")
     print(f"       Log path:  {_color(log_path, '1;37')}")
     print(_color("─" * 56, "36"))
     print()
@@ -270,6 +292,7 @@ def modo_interactivo() -> argparse.Namespace:
         timeout=timeout,
         debug=debug,
         emergency=emergency,
+        chaos=chaos,
         log_path=log_path,
     )
 

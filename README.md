@@ -109,6 +109,7 @@ python src/app_operator.py --cluster cluster-us-east-01 --timeout 3.0
 | `--log-path`  | Ruta del archivo de log rotativo (default: `logs/triton_monitor.log`).   | No |
 | `--debug`     | Modo debug: logging detallado (nivel `DEBUG`). Excluyente con `--emergency`. | No |
 | `--emergency` | Modo emergencia: solo errores críticos (nivel `ERROR`). Excluyente con `--debug`. | No |
+| `--chaos`     | Escenario C: en vez de los proveedores nominales, consulta endpoints reales de `httpbin.org` diseñados para fallar (timeout, HTTP 504 y host inexistente), disparando en vivo los 3 tipos de error de `exceptions.py`. | No |
 
 ## Escenarios de prueba
 
@@ -116,7 +117,7 @@ python src/app_operator.py --cluster cluster-us-east-01 --timeout 3.0
 |-----------|---------------------|--------------------------|
 | **A — Operación nominal** | `--cluster cluster-us-east-01 --timeout 3.0` | Los 3 proveedores responden `200 OK` y el sistema termina con éxito. |
 | **B — Validación temprana CLI** | `--timeout 99` o un cluster ID mal escrito | El validador frena la ejecución al instante y sale con código de error **2**. |
-| **C — Inyección de caos** | `--timeout 0.1` | Ocurren fallos concurrentes, se agrupan en `ExceptionGroup`, se capturan con `except*` y se guardan en el log comprimido `.gz`. |
+| **C — Inyección de caos** | `--timeout 0.1 --chaos` | Se consultan endpoints reales de `httpbin.org` que fallan a propósito (timeout, HTTP 504, host inexistente). Ocurren los 3 tipos de fallo a la vez, se agrupan en `ExceptionGroup`, se capturan con `except*` y se guardan en el log comprimido `.gz`. |
 
 ## Tests
 

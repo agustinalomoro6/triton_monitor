@@ -23,11 +23,24 @@ from .exceptions import (
 
 logger = logging.getLogger("triton_monitor")
 
-# Los 3 "proveedores" simulados con JSONPlaceholder
+# Los 3 "proveedores" simulados con JSONPlaceholder (operación nominal).
 PROVEEDORES = {
     "AWS": "https://jsonplaceholder.typicode.com/posts/1",
     "Azure": "https://jsonplaceholder.typicode.com/posts/2",
     "GCP": "https://jsonplaceholder.typicode.com/posts/3",
+}
+
+# Endpoints reales de httpbin.org que fallan A PROPÓSITO, para poder
+# demostrar en vivo (Escenario C - Inyección de Caos) los 3 tipos de
+# error que existen en exceptions.py, no solo el timeout:
+#   - AWS   -> tarda 3s en responder -> dispara ProviderTimeoutError
+#              si --timeout es menor a eso.
+#   - Azure -> responde HTTP 504     -> dispara CorruptedPayloadError.
+#   - GCP   -> host inexistente      -> dispara NetworkPeeringError.
+PROVEEDORES_CAOS = {
+    "AWS": "https://httpbin.org/delay/3",
+    "Azure": "https://httpbin.org/status/504",
+    "GCP": "https://nodo-inexistente.triton-monitor.invalid",
 }
 
 
@@ -74,7 +87,7 @@ async def consultar_proveedor(
         ) from error
 
 
-async def monitorear_clusters(timeout: float) -> list[dict]:
+async def monitorear_clusters(timeout: float, use_chaos: bool = False) -> list[dict]:
     """
     Orquesta las consultas concurrentes a los 3 proveedores dentro
     de un asyncio.TaskGroup().
@@ -82,8 +95,13 @@ async def monitorear_clusters(timeout: float) -> list[dict]:
     Si uno o más proveedores fallan, TaskGroup junta todas las
     excepciones en un único ExceptionGroup, que el llamador (en
     app_operator.py) debe capturar con bloques except*.
+
+    Con use_chaos=True se consultan los endpoints reales de httpbin.org
+    (PROVEEDORES_CAOS) en vez de los nominales, para poder demostrar en
+    vivo los 3 tipos de fallo: timeout, HTTP 504 y fallo de DNS/red.
     """
     resultados: list[dict] = []
+    endpoints = PROVEEDORES_CAOS if use_chaos else PROVEEDORES
 
     async with httpx.AsyncClient() as cliente:
         async with asyncio.TaskGroup() as grupo_tareas:
@@ -91,7 +109,7 @@ async def monitorear_clusters(timeout: float) -> list[dict]:
                 nombre: grupo_tareas.create_task(
                     consultar_proveedor(cliente, nombre, url, timeout)
                 )
-                for nombre, url in PROVEEDORES.items()
+                for nombre, url in endpoints.items()
             }
 
         # Si llegamos acá, TaskGroup ya esperó a que todas las tareas
