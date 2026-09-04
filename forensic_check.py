@@ -69,32 +69,39 @@ def _validar_timestamp_iso8601(valor: str) -> bool:
 
 def _validar_arbol_excepcion(exc: dict, numero_linea: int, problemas: list[str]) -> None:
     """
-    Verifica recursivamente que un nodo de excepcion tenga la forma
-    esperada: type, message, notes, y opcionalmente caused_by /
-    sub_exceptions, tal como los arma AsyncJSONFormatter.
+    Verifica recursivamente el árbol de excepciones y certifica que los errores
+    de httpx contengan código HTTP, mensaje o contexto forense.
     """
     for campo in ("type", "message"):
         if campo not in exc:
             problemas.append(
-                f"Linea {numero_linea}: al nodo de excepcion le falta "
-                f"el campo obligatorio '{campo}'."
+                f"Línea {numero_linea}: al nodo de excepción le falta '{campo}'."
             )
 
     if "notes" in exc and not isinstance(exc["notes"], list):
         problemas.append(
-            f"Linea {numero_linea}: 'notes' deberia ser una lista, "
-            f"se encontro {type(exc['notes']).__name__}."
+            f"Línea {numero_linea}: 'notes' debería ser una lista."
         )
+
+    # Validar que si es un error traducido de httpx, tenga información contextual
+    tipo_exc = exc.get("type", "")
+    if tipo_exc in ("CorruptedPayloadError", "ProviderTimeoutError", "NetworkPeeringError"):
+        mensaje_completo = exc.get("message", "") + "".join(exc.get("notes", []))
+        if "caused_by" in exc:
+            mensaje_completo += exc["caused_by"].get("message", "")
+        
+        # Certifica que haya al menos una referencia al status HTTP, timeout o red
+        if not any(k in mensaje_completo.lower() for k in ("http", "timeout", "status", "504", "422", "dns", "red", "forense")):
+            problemas.append(
+                f"Línea {numero_linea}: La excepción '{tipo_exc}' carece de detalles HTTP/red de httpx."
+            )
 
     if "caused_by" in exc:
         _validar_arbol_excepcion(exc["caused_by"], numero_linea, problemas)
 
     if "sub_exceptions" in exc:
         if not isinstance(exc["sub_exceptions"], list):
-            problemas.append(
-                f"Linea {numero_linea}: 'sub_exceptions' deberia ser "
-                f"una lista."
-            )
+            problemas.append(f"Línea {numero_linea}: 'sub_exceptions' debe ser una lista.")
         else:
             for sub in exc["sub_exceptions"]:
                 _validar_arbol_excepcion(sub, numero_linea, problemas)
