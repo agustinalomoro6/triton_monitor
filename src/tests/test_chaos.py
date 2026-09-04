@@ -37,6 +37,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from triton_telemetry.core import monitorear_clusters
+#Recordemos que monitorar_cluster se encarga de consultar en paralelos los 3 servidores y su alguno
+# falla, agrupa todos los errores
 from triton_telemetry.exceptions import (
     NetworkPeeringError,
     ProviderTimeoutError,
@@ -47,30 +49,30 @@ from triton_telemetry.sanitizer import validar_cluster_id, validar_timeout
 # =====================================================================
 # Grupo 1 - Validadores de frontera (sanitizer.py, Integrante 1)
 # =====================================================================
-
+#crea una clase para agrupar las pruebas relacioandas con validad_timeout()
 class TestValidarTimeout:
     """Prueba los limites exactos del validador de --timeout."""
-
+    #prueba 1, recordemos que el rango es de 0,1 a 5 segundos
     def test_timeout_valido_dentro_del_rango(self):
         assert validar_timeout("3.0") == 3.0
 
     def test_timeout_valido_cerca_del_limite_inferior(self):
-        # 0.1 es el limite EXCLUIDO, 0.11 debe ser valido.
+        # Prueba 2: 0.1 es el limite EXCLUIDO, 0.11 debe ser valido.
         assert validar_timeout("0.11") == pytest.approx(0.11)
 
     def test_timeout_rechaza_el_limite_inferior_exacto(self):
         # La consigna pide "estrictamente" entre 0.1 y 5.0.
         with pytest.raises(argparse.ArgumentTypeError):
             validar_timeout("0.1")
-
+    #Prueba 3: El 5 no está incluido dentro del rango
     def test_timeout_rechaza_el_limite_superior_exacto(self):
         with pytest.raises(argparse.ArgumentTypeError):
             validar_timeout("5.0")
-
+    #Prueba 4
     def test_timeout_rechaza_valor_fuera_de_rango(self):
         with pytest.raises(argparse.ArgumentTypeError):
             validar_timeout("99")
-
+    #Prueba 5
     def test_timeout_rechaza_texto_no_numerico(self):
         with pytest.raises(argparse.ArgumentTypeError):
             validar_timeout("abc")
@@ -79,6 +81,7 @@ class TestValidarTimeout:
 class TestValidarClusterId:
     """Prueba el formato cluster-<region>-<numero> con regex."""
 
+  #Ejecuta la misma prueba varias veces con diferentes valores
     @pytest.mark.parametrize(
         "cluster_id",
         ["cluster-us-east-01", "cluster-sa-east-99", "cluster-eu-west-10"],
