@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import subprocess
 
 # Permite ejecutar pytest desde cualquier carpeta, encontrando el
 # paquete triton_telemetry (ubicado en src/).
@@ -170,3 +171,236 @@ class TestEncapsulamientoDeErrores:
                 f"Se filtro una excepcion cruda de httpx sin traducir: "
                 f"{type(sub_exc).__name__}"
             )
+
+#Grupo 4 - Llamadas Concurrentes masivas a la CLI
+"""
+test_chaos.py
+--------------
+Integrante 6 - Suite de pruebas automatizada (Caos y validacion).
+
+Prueba:
+  1. Los validadores de sanitizer.py (Integrante 1) rechazan entradas
+     invalidas y aceptan las validas.
+  2. core.py (Integrante 2) lanza correctamente ProviderTimeoutError
+     cuando se le da un timeout demasiado agresivo (inyeccion de caos
+     real, contra los endpoints de JSONPlaceholder por internet).
+  3. El sistema no se rompe con un traceback crudo ante esas
+     condiciones limite: el error queda prolijamente encapsulado en
+     las excepciones propias de exceptions.py.
+
+Como ejecutar (parado en la carpeta raiz del proyecto, triton_monitor):
+    pip install pytest --break-system-packages
+    pytest src/tests/test_chaos.py -v
+
+Nota: las pruebas que llaman a monitorear_clusters() hacen peticiones
+HTTP reales. Si no hay conexion a internet, esas pruebas especificas
+van a fallar por un motivo distinto al que evaluan (no van a ser
+"falsos positivos" del codigo, sino falta de red en el entorno de
+ejecucion).
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import pytest
+
+#
+import subprocess
+
+class TestEjecucionCLIMasiva:
+    """
+    Prueba la ejecución concurrentes masiva llamando directamente a app_operator.py
+    vía subprocess, simulando el comportamiento real de un operador en CLI.
+    """
+
+    def test_ejecucion_masiva_cli_con_modo_caos(self):
+        # Ruta al script principal
+        app_path = Path(__file__).resolve().parents[1] / "app_operator.py"
+        
+        comando = [
+            sys.executable,
+            str(app_path),
+            "--cluster", "cluster-us-east-01",
+            "--timeout", "0.1",
+            "--chaos"
+        ]
+
+        # Lanza 3 procesos simultáneos de la CLI
+        procesos = [
+            subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for _ in range(3)
+        ]
+
+        for proc in procesos:
+            stdout, stderr = proc.communicate()
+            # El proceso no debe morir por un error no capturado (ej: no debe lanzar SyntaxError ni Crash)
+            assert proc.returncode in (0, 1), f"La CLI colapsó inesperadamente con código {proc.returncode}"
+
+# Permite ejecutar pytest desde cualquier carpeta, encontrando el
+# paquete triton_telemetry (ubicado en src/).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from triton_telemetry.core import monitorear_clusters
+#Recordemos que monitorar_cluster se encarga de consultar en paralelos los 3 servidores y su alguno
+# falla, agrupa todos los errores
+from triton_telemetry.exceptions import (
+    NetworkPeeringError,
+    ProviderTimeoutError,
+)
+from triton_telemetry.sanitizer import validar_cluster_id, validar_timeout
+
+
+# =====================================================================
+# Grupo 1 - Validadores de frontera (sanitizer.py, Integrante 1)
+# =====================================================================
+#crea una clase para agrupar las pruebas relacioandas con validad_timeout()
+class TestValidarTimeout:
+    """Prueba los limites exactos del validador de --timeout."""
+    #prueba 1, recordemos que el rango es de 0,1 a 5 segundos
+    def test_timeout_valido_dentro_del_rango(self):
+        assert validar_timeout("3.0") == 3.0
+
+    def test_timeout_valido_cerca_del_limite_inferior(self):
+        # Prueba 2: 0.1 es el limite EXCLUIDO, 0.11 debe ser valido.
+        assert validar_timeout("0.11") == pytest.approx(0.11)
+
+    def test_timeout_rechaza_el_limite_inferior_exacto(self):
+        # La consigna pide "estrictamente" entre 0.1 y 5.0.
+        with pytest.raises(argparse.ArgumentTypeError):
+            validar_timeout("0.1")
+    #Prueba 3: El 5 no está incluido dentro del rango
+    def test_timeout_rechaza_el_limite_superior_exacto(self):
+        with pytest.raises(argparse.ArgumentTypeError):
+            validar_timeout("5.0")
+    #Prueba 4
+    def test_timeout_rechaza_valor_fuera_de_rango(self):
+        with pytest.raises(argparse.ArgumentTypeError):
+            validar_timeout("99")
+    #Prueba 5
+    def test_timeout_rechaza_texto_no_numerico(self):
+        with pytest.raises(argparse.ArgumentTypeError):
+            validar_timeout("abc")
+
+
+class TestValidarClusterId:
+    """Prueba el formato cluster-<region>-<numero> con regex."""
+
+  #Ejecuta la misma prueba varias veces con diferentes valores
+    @pytest.mark.parametrize(
+        "cluster_id",
+        ["cluster-us-east-01", "cluster-sa-east-99", "cluster-eu-west-10"],
+    )
+    def test_cluster_id_valido(self, cluster_id):
+        assert validar_cluster_id(cluster_id) == cluster_id
+
+    @pytest.mark.parametrize(
+        "cluster_id",
+        [
+            "CLUSTER_MAL",
+            "cluster-us-1",
+            "cluster-us-east-1",  # un solo digito, se exige 2 o mas
+            "us-east-01",
+            "",
+        ],
+    )
+    def test_cluster_id_invalido(self, cluster_id):
+        with pytest.raises(argparse.ArgumentTypeError):
+            validar_cluster_id(cluster_id)
+
+
+# =====================================================================
+# Grupo 2 - Inyeccion de caos real contra core.py (Integrante 2)
+# =====================================================================
+
+class TestInyeccionDeCaos:
+    """
+    Fuerza condiciones limite reales de red para confirmar que
+    core.py traduce correctamente los fallos de httpx a las
+    excepciones semanticas propias, en vez de dejar pasar un
+    traceback crudo de la libreria de terceros.
+    """
+
+    @pytest.mark.asyncio
+    async def test_timeout_agresivo_lanza_exception_group_con_provider_timeout(self):
+        """
+        Con un timeout extremadamente bajo (0.001s), es practicamente
+        imposible que un servidor real responda a tiempo. Se espera
+        que TaskGroup agrupe los fallos y que, dentro del grupo,
+        aparezca al menos un ProviderTimeoutError.
+        """
+        with pytest.raises(ExceptionGroup) as exc_info:
+            await monitorear_clusters(0.001)
+
+        grupo = exc_info.value
+        timeouts, resto = grupo.split(ProviderTimeoutError)
+        assert timeouts is not None, (
+            "Se esperaba al menos un ProviderTimeoutError dentro del "
+            "ExceptionGroup ante un timeout de 0.001s."
+        )
+
+    @pytest.mark.asyncio
+    async def test_timeout_normal_no_lanza_excepciones(self):
+        """
+        Caso de control (Escenario A): con un timeout razonable, los
+        3 proveedores deberian responder sin lanzar ningun error.
+        """
+        resultados = await monitorear_clusters(5.0)
+        assert len(resultados) == 3
+        for resultado in resultados:
+            assert resultado["status"] == "OK"
+
+
+# =====================================================================
+# Grupo 3 - El sistema nunca deja pasar excepciones "crudas"
+# =====================================================================
+
+class TestEncapsulamientoDeErrores:
+    """
+    Verifica que, ante un fallo de red, NUNCA se propague una
+    excepcion cruda de httpx hacia afuera de core.py: siempre debe
+    salir envuelta en una excepcion propia de exceptions.py.
+    """
+
+    @pytest.mark.asyncio
+    async def test_no_se_filtran_excepciones_de_httpx_sin_traducir(self):
+        import httpx
+
+        with pytest.raises(ExceptionGroup) as exc_info:
+            await monitorear_clusters(0.001)
+
+        grupo = exc_info.value
+        for sub_exc in grupo.exceptions:
+            assert not isinstance(sub_exc, httpx.HTTPError), (
+                f"Se filtro una excepcion cruda de httpx sin traducir: "
+                f"{type(sub_exc).__name__}"
+            )
+# GRUPO 4- Llamadas concurrentes masivas
+class TestEjecucionCLIMasiva:
+    """
+    Prueba la ejecución concurrente masiva llamando directamente a app_operator.py
+    vía subprocess, simulando el comportamiento real de un operador en CLI.
+    """
+
+    def test_ejecucion_masiva_cli_con_modo_caos(self):
+        app_path = Path(__file__).resolve().parents[1] / "app_operator.py"
+        
+        comando = [
+            sys.executable,
+            str(app_path),
+            "--cluster", "cluster-us-east-01",
+            "--timeout", "0.1",
+            "--chaos"
+        ]
+
+        # Lanza 3 procesos simultáneos de la CLI
+        procesos = [
+            subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for _ in range(3)
+        ]
+
+        for proc in procesos:
+            stdout, stderr = proc.communicate()
+            assert proc.returncode in (0, 1), f"La CLI colapsó inesperadamente con código {proc.returncode}"
