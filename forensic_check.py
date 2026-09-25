@@ -1,22 +1,4 @@
 """
-forensic_check.py
--------------------
-Integrante 6 - Script forense de certificacion de logs.
-
-Descomprime los archivos .gz generados por logging_engine.py, lee cada
-linea como JSON, y certifica que la estructura contenga lo que exige
-la consigna:
-  - Metadatos basicos: timestamp (ISO 8601 UTC), level, logger,
-    threadName, taskName.
-  - Si el log corresponde a un error: el arbol de excepcion con tipo,
-    mensaje y notas, incluyendo (si aplica) sub_exceptions de un
-    ExceptionGroup y/o caused_by encadenado.
-
-Uso:
-    python forensic_check.py                     # revisa logs/*.gz
-    python forensic_check.py --log-dir otra_ruta  # revisa otra carpeta
-    python forensic_check.py --verbose            # muestra cada linea
-
 Codigo de salida:
     0 -> todos los archivos .gz encontrados son validos
     1 -> se encontro al menos un problema estructural
@@ -32,14 +14,9 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-# Campos que TODO log, sin excepcion, debe tener segun la consigna.
 CAMPOS_OBLIGATORIOS = ("timestamp", "level", "logger", "message")
 
-# Campos de metadatos de entorno que la consigna pide explicitamente
-# (Integrante 3: "metadatos del entorno de ejecucion").
 CAMPOS_METADATOS = ("process", "threadName", "taskName")
-
 
 @dataclass
 class ResultadoArchivo:
@@ -55,10 +32,7 @@ class ResultadoArchivo:
 
 
 def _validar_timestamp_iso8601(valor: str) -> bool:
-    """Confirma que el timestamp sea parseable como ISO 8601."""
     try:
-        # Python 3.11+ entiende directamente el formato con offset,
-        # incluyendo el sufijo 'Z' si estuviera presente.
         from datetime import datetime
 
         datetime.fromisoformat(valor.replace("Z", "+00:00"))
@@ -68,10 +42,6 @@ def _validar_timestamp_iso8601(valor: str) -> bool:
 
 
 def _validar_arbol_excepcion(exc: dict, numero_linea: int, problemas: list[str]) -> None:
-    """
-    Verifica recursivamente el árbol de excepciones y certifica que los errores
-    de httpx contengan código HTTP, mensaje o contexto forense.
-    """
     for campo in ("type", "message"):
         if campo not in exc:
             problemas.append(
@@ -82,15 +52,13 @@ def _validar_arbol_excepcion(exc: dict, numero_linea: int, problemas: list[str])
         problemas.append(
             f"Línea {numero_linea}: 'notes' debería ser una lista."
         )
-
-    # Validar que si es un error traducido de httpx, tenga información contextual
+      
     tipo_exc = exc.get("type", "")
     if tipo_exc in ("CorruptedPayloadError", "ProviderTimeoutError", "NetworkPeeringError"):
         mensaje_completo = exc.get("message", "") + "".join(exc.get("notes", []))
         if "caused_by" in exc:
             mensaje_completo += exc["caused_by"].get("message", "")
         
-        # Certifica que haya al menos una referencia al status HTTP, timeout o red
         if not any(k in mensaje_completo.lower() for k in ("http", "timeout", "status", "504", "422", "dns", "red", "forense")):
             problemas.append(
                 f"Línea {numero_linea}: La excepción '{tipo_exc}' carece de detalles HTTP/red de httpx."
@@ -108,21 +76,12 @@ def _validar_arbol_excepcion(exc: dict, numero_linea: int, problemas: list[str])
 
 
 def _abrir_para_lectura(ruta: Path):
-    """
-    Abre el archivo en modo texto. Si termina en .gz lo descomprime al
-    vuelo; si no (por ejemplo un .log plano todavia no rotado), lo abre
-    directamente.
-    """
     if ruta.suffix == ".gz":
         return gzip.open(ruta, "rt", encoding="utf-8")
     return open(ruta, "rt", encoding="utf-8")
 
 
 def analizar_archivo_gz(ruta: Path, verbose: bool = False) -> ResultadoArchivo:
-    """
-    Descomprime un archivo .gz (o lee un .log plano) y valida cada
-    linea JSON que contiene.
-    """
     resultado = ResultadoArchivo(ruta=ruta)
 
     try:
@@ -145,7 +104,6 @@ def analizar_archivo_gz(ruta: Path, verbose: bool = False) -> ResultadoArchivo:
                     )
                     continue
 
-                # Campos obligatorios de cualquier log.
                 faltantes = [c for c in CAMPOS_OBLIGATORIOS if c not in registro]
                 if faltantes:
                     resultado.problemas.append(
@@ -154,15 +112,12 @@ def analizar_archivo_gz(ruta: Path, verbose: bool = False) -> ResultadoArchivo:
                     )
                     continue
 
-                # Timestamp en formato ISO 8601 UTC.
                 if not _validar_timestamp_iso8601(registro["timestamp"]):
                     resultado.problemas.append(
                         f"Linea {numero_linea}: 'timestamp' no tiene "
                         f"formato ISO 8601 valido: {registro['timestamp']!r}."
                     )
 
-                # Metadatos de entorno (pueden faltar algunos segun el
-                # contexto de ejecucion, pero se avisa si faltan todos).
                 metadatos_presentes = [c for c in CAMPOS_METADATOS if c in registro]
                 if not metadatos_presentes:
                     resultado.problemas.append(
@@ -170,8 +125,6 @@ def analizar_archivo_gz(ruta: Path, verbose: bool = False) -> ResultadoArchivo:
                         f"metadato de entorno {CAMPOS_METADATOS}."
                     )
 
-                # Si el log corresponde a un error, validar el arbol
-                # de excepcion.
                 if "exception" in registro:
                     resultado.lineas_con_excepcion += 1
                     _validar_arbol_excepcion(
@@ -184,8 +137,6 @@ def analizar_archivo_gz(ruta: Path, verbose: bool = False) -> ResultadoArchivo:
     except OSError as error:
         resultado.problemas.append(f"No se pudo abrir/descomprimir el archivo: {error}")
 
-    # lineas_validas se recalcula al final para contar bien incluso si
-    # una linea posterior agrego problemas retroactivamente.
     resultado.lineas_validas = resultado.lineas_totales - len(
         {p.split(":")[0] for p in resultado.problemas if p.startswith("Linea")}
     )
