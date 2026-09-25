@@ -1,13 +1,3 @@
-"""
-app_operator.py
------------------
-Punto de entrada ejecutable de TritonMonitor (Integrante 5).
-
-Arma el parser de argparse, configura el logging declarativamente
-con logging.config.dictConfig, ejecuta el flujo asincrono de
-core.py y captura selectivamente los errores con except* segun
-la sintaxis moderna de grupos de excepciones (PEP 654).
-"""
 
 from __future__ import annotations
 
@@ -18,9 +8,6 @@ import logging.config
 import os
 import sys
 
-# Permite ejecutar este archivo desde cualquier directorio de trabajo,
-# asegurando que el paquete triton_telemetry (vecino de este archivo)
-# sea siempre importable.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from triton_telemetry.core import monitorear_clusters
@@ -34,7 +21,6 @@ from triton_telemetry.sanitizer import validar_cluster_id, validar_timeout
 
 
 def construir_parser() -> argparse.ArgumentParser:
-    """Arma el parser de argparse con los validadores del Integrante 1."""
     parser = argparse.ArgumentParser(
         prog="triton_monitor",
         description="Monitor de clusters multicloud (AWS, Azure, GCP).",
@@ -87,7 +73,6 @@ def construir_parser() -> argparse.ArgumentParser:
 
 
 def resolver_nivel_log(args: argparse.Namespace) -> int:
-    """Traduce el modo elegido (nominal/debug/emergency) a un nivel de logging."""
     if args.debug:
         return logging.DEBUG
     if args.emergency:
@@ -96,14 +81,7 @@ def resolver_nivel_log(args: argparse.Namespace) -> int:
 
 
 def construir_dict_config(nivel: int, log_queue) -> dict:
-    """
-    Arma la configuracion declarativa de logging.
 
-    El handler que de verdad escribe a disco vive del otro lado de
-    la cola, dentro del QueueListener armado por build_logging_pipeline
-    (logging_engine.py). Del lado de la aplicacion solo existe este
-    RawQueueHandler, liviano y no bloqueante.
-    """
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -124,10 +102,7 @@ def construir_dict_config(nivel: int, log_queue) -> dict:
 
 
 async def ejecutar(args: argparse.Namespace) -> int:
-    """
-    Ejecuta el flujo asincrono principal y devuelve el codigo de
-    salida del proceso (0 = exito, 1 = algun proveedor fallo).
-    """
+    
     logger = logging.getLogger("triton_monitor")
     codigo_salida = 0
 
@@ -174,15 +149,11 @@ async def ejecutar(args: argparse.Namespace) -> int:
 
 
 def _color(texto: str, codigo: str) -> str:
-    """Envuelve texto en secuencias ANSI para colorear la terminal."""
     return f"\033[{codigo}m{texto}\033[0m"
 
 
 def modo_interactivo() -> argparse.Namespace:
-    """
-    Interfaz interactiva que guía al usuario paso a paso cuando
-    ejecuta el script sin argumentos.
-    """
+
     print()
     print(_color("=" * 56, "35"))
     print(_color("             ⚡  B Y T E F O R C E  ⚡", "1;35"))
@@ -191,7 +162,6 @@ def modo_interactivo() -> argparse.Namespace:
     print(_color("=" * 56, "36"))
     print()
 
-    # ── 1. Cluster ID ────────────────────────────────────────
     print(_color("📌  Paso 1/5: Identificador del cluster", "1;33"))
     print("   Formato: cluster-<region>-<numero>")
     print("   Ejemplo: cluster-us-east-01, cluster-sa-east-99")
@@ -208,7 +178,7 @@ def modo_interactivo() -> argparse.Namespace:
             print(_color(f"   ⚠  {e}", "31"))
     print()
 
-    # ── 2. Timeout ───────────────────────────────────────────
+    #  2 Timeout
     print(_color("⏱️   Paso 2/5: Timeout de red (segundos)", "1;33"))
     print("   Rango permitido: 0.1 – 5.0 (exclusivo)")
     print("   Default: 3.0")
@@ -225,7 +195,7 @@ def modo_interactivo() -> argparse.Namespace:
             print(_color(f"   ⚠  {e}", "31"))
     print()
 
-    # ── 3. Modo de logging ───────────────────────────────────
+    # 3 Modo de logging 
     print(_color("📋  Paso 3/5: Modo de logging", "1;33"))
     print("   [1] Normal  — nivel INFO (default)")
     print("   [2] Debug   — nivel DEBUG (detallado)")
@@ -246,7 +216,7 @@ def modo_interactivo() -> argparse.Namespace:
             print(_color("   ⚠  Opción inválida. Ingresa 1, 2 o 3.", "31"))
     print()
 
-    # ── 4. Escenario de caos (opcional) ──────────────────────
+    # 4 Escenario de caos 
     print(_color("🌪️   Paso 4/5: Escenario de caos (opcional)", "1;33"))
     print("   Consulta endpoints reales de httpbin.org disenhados")
     print("   para fallar (timeout, HTTP 504, host inexistente),")
@@ -256,7 +226,7 @@ def modo_interactivo() -> argparse.Namespace:
     chaos = raw_caos in ("s", "si", "sí", "y", "yes")
     print()
 
-    # ── 5. Ruta de log ───────────────────────────────────────
+    # 5 Ruta de log
     print(_color("📁  Paso 5/5: Ruta del archivo de log", "1;33"))
     default_log = "logs/triton_monitor.log"
     print(f"   Default: {default_log}")
@@ -266,7 +236,8 @@ def modo_interactivo() -> argparse.Namespace:
         log_path = default_log
     print()
 
-    # ── Resumen ──────────────────────────────────────────────
+
+    
     modo_str = "Debug" if debug else ("Emergency" if emergency else "Normal")
     caos_str = "Sí (httpbin.org)" if chaos else "No (nominal)"
     print(_color("─" * 56, "36"))
@@ -314,8 +285,7 @@ def main() -> None:
     try:
         codigo_salida = asyncio.run(ejecutar(args))
     finally:
-        # Apagado ordenado: fuerza a escribir todo lo pendiente en la
-        # cola antes de terminar. Sin return/break aca (PEP 765).
+    
         listener.stop()
 
     sys.exit(codigo_salida)
